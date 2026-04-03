@@ -9,7 +9,7 @@ axios.interceptors.request.use((config) => {
   return config;
 });
 
-const useAuthStore = create((set) => ({
+export const useAuthStore = create((set) => ({
   user: null,
   token: localStorage.getItem('token') || null,
   loading: false,
@@ -21,10 +21,10 @@ const useAuthStore = create((set) => ({
       const res = await axios.post(`${API}/auth/login`, { email, password });
       localStorage.setItem('token', res.data.token);
       set({ token: res.data.token, user: res.data.user, loading: false });
-      return true;
+      return res.data.user.role;
     } catch (err) {
       set({ error: err.response?.data?.message || 'Login failed', loading: false });
-      return false;
+      return null;
     }
   },
 
@@ -61,5 +61,4 @@ const useAuthStore = create((set) => ({
   clearError: () => set({ error: null }),
 }));
 
-export { useAuthStore };
 export default useAuthStore;

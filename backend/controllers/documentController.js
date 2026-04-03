@@ -22,11 +22,12 @@ exports.uploadDocument = async (req, res) => {
     const { data, error } = await supabase.storage
       .from('documents')
       .upload(fileName, fileBuffer, {
-        contentType: file.mimetype
+        contentType: file.mimetype,
       });
 
     if (error) {
-      return res.status(500).json({ message: 'Upload failed', error: error.message });
+      fs.unlinkSync(file.path); // clean up temp file even on error
+      return res.status(500).json({ message: 'Supabase upload failed', error: error.message });
     }
 
     // Get public URL
@@ -35,15 +36,15 @@ exports.uploadDocument = async (req, res) => {
       .getPublicUrl(fileName);
 
     // Save metadata to MongoDB
-  const document = new Document({
-  userId: req.userId,
-  originalName: file.originalname,
-  filename: file.originalname,
-  mimeType: file.mimetype,
-  size: file.size,
-  url: urlData.publicUrl,
-  storagePath: fileName,
-});
+    const document = new Document({
+      userId: req.userId,
+      originalName: file.originalname,
+      filename: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+      url: urlData.publicUrl,
+      storagePath: fileName,
+    });
 
     await document.save();
 
@@ -52,7 +53,7 @@ exports.uploadDocument = async (req, res) => {
 
     res.status(201).json({
       message: 'File uploaded successfully',
-      document
+      document,
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -62,25 +63,35 @@ exports.uploadDocument = async (req, res) => {
 // Get all documents for user
 exports.getDocuments = async (req, res) => {
   try {
-    const documents = await Document.find({ userId: req.userId })
-      .sort({ createdAt: -1 });
+    const documents = await Document.find({ userId: req.userId }).sort({ createdAt: -1 });
     res.status(200).json(documents);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Delete document
+// ✅ FIX: Delete from Supabase storage too, not just MongoDB
 exports.deleteDocument = async (req, res) => {
   try {
-    const document = await Document.findOneAndDelete({
+    const document = await Document.findOne({
       _id: req.params.id,
-      userId: req.userId
+      userId: req.userId,
     });
 
     if (!document) {
       return res.status(404).json({ message: 'Document not found' });
     }
+
+    // Delete from Supabase storage
+    if (document.storagePath) {
+      const { error } = await supabase.storage
+        .from('documents')
+        .remove([document.storagePath]);
+      if (error) console.error('Supabase delete error:', error.message);
+    }
+
+    // Delete from MongoDB
+    await document.deleteOne();
 
     res.status(200).json({ message: 'Document deleted successfully' });
   } catch (error) {
